@@ -79,6 +79,11 @@ DMG_EXTRACT="$WORKDIR/dmg_extracted"
 PKG_EXPAND="$WORKDIR/pkg_expanded"
 APP_EXTRACT="$WORKDIR/app_extracted"
 
+# remove previous extraction so pkgutil doesn't fail
+if [ -d "$WORKDIR" ]; then
+    rm -rf "$WORKDIR"
+fi
+
 mkdir -p "$WORKDIR" "$APP_EXTRACT"
 
 ############################################
@@ -158,6 +163,3 @@ echo " "
 echo "dmg extracted to        $DMG_EXTRACT"
 echo "pkg expanded to         $PKG_EXPAND"
 echo "app files extracted to  $APP_EXTRACT"
-
-rm -- "$0"
-# yeah zero fucking dollars thats what you get from running the script
