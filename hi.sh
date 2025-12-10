@@ -121,7 +121,10 @@ fi
 #             5. Expand PKG                #
 ############################################
 
+# ensure expanded folder is empty
+rm -rf "$PKG_EXPAND"
 mkdir -p "$PKG_EXPAND"
+
 echo "open pkg"
 
 pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" || {
@@ -129,6 +132,7 @@ pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" || {
     rm -rf "$WORKDIR"
     exit 1
 }
+
 
 echo "yay"
 
