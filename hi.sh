@@ -3,39 +3,64 @@
 echo "attwmcf?"
 echo
 
-# --- Step 0: Setup user-level Homebrew ---
+############################################
+#   0. Homebrew (user-level) + 7z checks   #
+############################################
+
 BREW_PREFIX="$HOME/homebrew"
 BREW_BIN="$BREW_PREFIX/bin/brew"
 
-if ! command -v "$BREW_BIN" &>/dev/null; then
+# Add brew to PATH if it exists
+if [ -x "$BREW_BIN" ]; then
+    export PATH="$BREW_PREFIX/bin:$PATH"
+fi
+
+# Install brew if missing
+if ! command -v brew &>/dev/null; then
     echo "where is homebrew"
+
+    NONINTERACTIVE=1 \
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
-    mkdir -p "$BREW_PREFIX"
-    export PATH="$BREW_BIN:$PATH"
-    echo "homebrew at $BREW_PREFIX"
-else
-    echo "ok u have homebrew at $BREW_BIN"
+
+    # detection fallback
+    if [ -x "$HOME/.linuxbrew/bin/brew" ]; then
+        export PATH="$HOME/.linuxbrew/bin:$PATH"
+    fi
+    if [ -x "/opt/homebrew/bin/brew" ]; then
+        export PATH="/opt/homebrew/bin:$PATH"
+    fi
 fi
 
-# Check p7zip
-export PATH="$BREW_PREFIX/bin:$PATH"
-if ! "$BREW_BIN" list p7zip &>/dev/null; then
+# Re-check brew
+if ! command -v brew &>/dev/null; then
+    echo "homebrew installation failed"
+    exit 1
+fi
+
+# Install p7zip if needed
+if ! command -v 7z &>/dev/null; then
     echo "not found specific file thing"
-    "$BREW_BIN" install p7zip
+    brew install p7zip || { echo "failed to install p7zip"; exit 1; }
 fi
 
-# --- Step 1: Ask user for extraction type ---
-echo "Select extraction type:"
+############################################
+#      1. Extraction Type Selection        #
+############################################
+
+echo "choose:"
 echo "1) dmg > pkg > app"
 echo "2) pkg > app"
-read -p "Enter 1 or 2: " TYPE
+read -p "answer: " TYPE
 
 if [[ "$TYPE" != "1" && "$TYPE" != "2" ]]; then
     echo "twin what is that"
     exit 1
 fi
 
-# --- Step 2: Select file and output folder ---
+############################################
+#   2. Ask for File + Output Folder GUI    #
+############################################
+
 if [[ "$TYPE" == "1" ]]; then
     FILE_PATH=$(osascript -e 'POSIX path of (choose file with prompt "select dmg to extract:")')
 else
@@ -43,6 +68,10 @@ else
 fi
 
 OUTDIR=$(osascript -e 'POSIX path of (choose folder with prompt "where do i save the files at:")')
+
+############################################
+#        3. Setup Working Directories      #
+############################################
 
 BASE=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//')
 WORKDIR="$OUTDIR/${BASE}_extracted"
@@ -52,49 +81,80 @@ APP_EXTRACT="$WORKDIR/app_extracted"
 
 mkdir -p "$WORKDIR" "$APP_EXTRACT"
 
-# --- Step 3: DMG workflow ---
+############################################
+#              4. DMG Extract              #
+############################################
+
 if [[ "$TYPE" == "1" ]]; then
     mkdir -p "$DMG_EXTRACT" "$PKG_EXPAND"
     echo "extracting dmg"
-    7z x "$FILE_PATH" -o"$DMG_EXTRACT" >/dev/null
+
+    7z x "$FILE_PATH" -o"$DMG_EXTRACT" >/dev/null || {
+        echo "no the extraction didnt work and its all your fault (no)"
+        rm -rf "$WORKDIR"
+        exit 1
+    }
+
     echo "yeah"
 
     echo "searching for pkg in dmg"
     PKG_PATH=$(find "$DMG_EXTRACT" -type f -name "*.pkg" | head -n 1)
+
     if [ -z "$PKG_PATH" ]; then
         echo "where the fuck is the pkg"
         rm -rf "$WORKDIR"
         echo "fuck you"
         exit 1
     fi
+
     echo "pkg: $PKG_PATH"
 else
     PKG_PATH="$FILE_PATH"
 fi
 
-# --- Step 4: Expand PKG ---
+############################################
+#             5. Expand PKG                #
+############################################
+
 mkdir -p "$PKG_EXPAND"
 echo "open pkg"
-pkgutil --expand "$PKG_PATH" "$PKG_EXPAND"
+
+pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" || {
+    echo "pkgutil failed"
+    rm -rf "$WORKDIR"
+    exit 1
+}
+
 echo "yay"
 
-# --- Step 5: Extract Payload ---
+############################################
+#            6. Extract Payload            #
+############################################
+
 echo "where is the fucking payload"
+
 PAYLOAD_PATH=$(find "$PKG_EXPAND" -type f -name "Payload" | head -n 1)
+
 if [ -z "$PAYLOAD_PATH" ]; then
-    echo "no payload, deleting everything else"
+    echo "payload found"
     rm -rf "$WORKDIR"
     exit 1
 fi
-echo "payload: $PAYLOAD_PATH"
 
+echo "payload: $PAYLOAD_PATH"
 echo "open payload"
+
 (
-    cd "$APP_EXTRACT"
+    cd "$APP_EXTRACT" || exit
     cat "$PAYLOAD_PATH" | gunzip -dc | cpio -idmv
 )
 
-echo "completed"
+############################################
+#                 DONE                     #
+############################################
+
+echo "ok its done"
+echo " "
 echo "dmg extracted to        $DMG_EXTRACT"
-echo "pkg expanded to          $PKG_EXPAND"
+echo "pkg expanded to         $PKG_EXPAND"
 echo "app files extracted to  $APP_EXTRACT"
