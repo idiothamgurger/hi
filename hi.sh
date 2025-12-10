@@ -4,7 +4,7 @@ echo "attwmcf?"
 echo
 
 ############################################
-#   0. Homebrew (user-level) + 7z checks   #
+#   0. Homebrew (user-level) + 7z checks  #
 ############################################
 
 BREW_PREFIX="$HOME/homebrew"
@@ -18,7 +18,6 @@ fi
 # Install brew if missing
 if ! command -v brew &>/dev/null; then
     echo "where is homebrew"
-
     NONINTERACTIVE=1 \
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
 
@@ -79,27 +78,25 @@ DMG_EXTRACT="$WORKDIR/dmg_extracted"
 PKG_EXPAND="$WORKDIR/pkg_expanded"
 APP_EXTRACT="$WORKDIR/app_extracted"
 
-# remove previous extraction so pkgutil doesn't fail
+# Remove previous extraction if it exists
 if [ -d "$WORKDIR" ]; then
     rm -rf "$WORKDIR"
 fi
 
-mkdir -p "$WORKDIR" "$APP_EXTRACT"
+# Create only safe-to-precreate directories
+mkdir -p "$WORKDIR" "$DMG_EXTRACT" "$APP_EXTRACT"
 
 ############################################
 #              4. DMG Extract              #
 ############################################
 
 if [[ "$TYPE" == "1" ]]; then
-    mkdir -p "$DMG_EXTRACT" "$PKG_EXPAND"
     echo "extracting dmg"
-
     7z x "$FILE_PATH" -o"$DMG_EXTRACT" >/dev/null || {
         echo "no the extraction didnt work and its all your fault (no)"
         rm -rf "$WORKDIR"
         exit 1
     }
-
     echo "yeah"
 
     echo "searching for pkg in dmg"
@@ -111,7 +108,6 @@ if [[ "$TYPE" == "1" ]]; then
         echo "fuck you"
         exit 1
     fi
-
     echo "pkg: $PKG_PATH"
 else
     PKG_PATH="$FILE_PATH"
@@ -123,16 +119,13 @@ fi
 
 # ensure expanded folder is empty
 rm -rf "$PKG_EXPAND"
-mkdir -p "$PKG_EXPAND"
 
 echo "open pkg"
-
 pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" || {
     echo "pkgutil failed"
     rm -rf "$WORKDIR"
     exit 1
 }
-
 
 echo "yay"
 
@@ -141,7 +134,6 @@ echo "yay"
 ############################################
 
 echo "where is the fucking payload"
-
 PAYLOAD_PATH=$(find "$PKG_EXPAND" -type f -name "Payload" | head -n 1)
 
 if [ -z "$PAYLOAD_PATH" ]; then
