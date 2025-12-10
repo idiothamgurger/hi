@@ -4,7 +4,7 @@ echo "attwmcf?"
 echo
 
 ############################################
-#   0. Homebrew (user-level) + 7z checks  #
+# 0. Homebrew (user-level) + 7z + dmg2img #
 ############################################
 
 BREW_PREFIX="$HOME/homebrew"
@@ -20,30 +20,18 @@ if ! command -v brew &>/dev/null; then
     echo "where is homebrew"
     NONINTERACTIVE=1 \
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
+fi
 
-    # detection fallback
-    if [ -x "$HOME/.linuxbrew/bin/brew" ]; then
-        export PATH="$HOME/.linuxbrew/bin:$PATH"
+# Ensure p7zip and dmg2img are installed
+for tool in 7z dmg2img; do
+    if ! command -v $tool &>/dev/null; then
+        echo "not found specific file thing ($tool)"
+        brew install $tool || { echo "failed to install $tool"; }
     fi
-    if [ -x "/opt/homebrew/bin/brew" ]; then
-        export PATH="/opt/homebrew/bin:$PATH"
-    fi
-fi
-
-# Re-check brew
-if ! command -v brew &>/dev/null; then
-    echo "homebrew installation failed"
-    exit 1
-fi
-
-# Install p7zip if needed
-if ! command -v 7z &>/dev/null; then
-    echo "not found specific file thing"
-    brew install p7zip || { echo "failed to install p7zip"; exit 1; }
-fi
+done
 
 ############################################
-#      1. Extraction Type Selection        #
+# 1. Extraction Type Selection             #
 ############################################
 
 echo "choose:"
@@ -57,7 +45,7 @@ if [[ "$TYPE" != "1" && "$TYPE" != "2" ]]; then
 fi
 
 ############################################
-#   2. Ask for File + Output Folder GUI    #
+# 2. Ask for File + Output Folder GUI     #
 ############################################
 
 if [[ "$TYPE" == "1" ]]; then
@@ -69,7 +57,7 @@ fi
 OUTDIR=$(osascript -e 'POSIX path of (choose folder with prompt "where do i save the files at:")')
 
 ############################################
-#        3. Setup Working Directories      #
+# 3. Setup Working Directories             #
 ############################################
 
 BASE=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//')
@@ -78,84 +66,79 @@ DMG_EXTRACT="$WORKDIR/dmg_extracted"
 PKG_EXPAND="$WORKDIR/pkg_expanded"
 APP_EXTRACT="$WORKDIR/app_extracted"
 
-# Remove previous extraction if it exists
-if [ -d "$WORKDIR" ]; then
-    rm -rf "$WORKDIR"
-fi
-
-# Create only safe-to-precreate directories
+# Remove previous extraction
+rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR" "$DMG_EXTRACT" "$APP_EXTRACT"
 
 ############################################
-#              4. DMG Extract              #
+# 4. DMG Extraction (Non-mounting)        #
 ############################################
 
 if [[ "$TYPE" == "1" ]]; then
-    echo "extracting dmg"
-    7z x "$FILE_PATH" -o"$DMG_EXTRACT" >/dev/null || {
-        echo "no the extraction didnt work and its all your fault (no)"
-        rm -rf "$WORKDIR"
-        exit 1
-    }
-    echo "yeah"
+    echo "attempting to extract dmg..."
 
-    echo "searching for pkg in dmg"
+    # Method 1: 7z
+    echo "trying 7z..."
+    7z x "$FILE_PATH" -o"$DMG_EXTRACT" >/dev/null 2>&1 || echo "7z failed, moving to next method"
+
+    # Method 2: dmg2img
+    echo "trying dmg2img..."
+    IMG_PATH="$WORKDIR/${BASE}.img"
+    dmg2img "$FILE_PATH" "$IMG_PATH" >/dev/null 2>&1 || echo "dmg2img failed"
+
+    # Method 3: 7z on converted img
+    if [ -f "$IMG_PATH" ]; then
+        echo "Trying 7z on img..."
+        7z x "$IMG_PATH" -o"$DMG_EXTRACT" >/dev/null 2>&1 || echo "7z on img failed"
+    fi
+
+    # Search for pkg inside extracted DMG folder
     PKG_PATH=$(find "$DMG_EXTRACT" -type f -name "*.pkg" | head -n 1)
 
     if [ -z "$PKG_PATH" ]; then
         echo "where the fuck is the pkg"
-        rm -rf "$WORKDIR"
-        echo "fuck you"
-        exit 1
+        echo "Are these the world's most crispy fries?"
+        echo 
+    else
+        echo "pkg found: $PKG_PATH"
     fi
-    echo "pkg: $PKG_PATH"
 else
     PKG_PATH="$FILE_PATH"
 fi
 
 ############################################
-#             5. Expand PKG                #
+# 5. Expand PKG                            #
 ############################################
 
-# ensure expanded folder is empty
-rm -rf "$PKG_EXPAND"
+if [ -f "$PKG_PATH" ]; then
+    echo "open pkg"
+    rm -rf "$PKG_EXPAND"
+    pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" >/dev/null 2>&1 || echo "pkgutil failed, continuing"
+    echo "yay"
 
-echo "open pkg"
-pkgutil --expand "$PKG_PATH" "$PKG_EXPAND" || {
-    echo "pkgutil failed"
-    rm -rf "$WORKDIR"
-    exit 1
-}
+    ########################################
+    # 6. Extract Payload                    #
+    ########################################
 
-echo "yay"
+    echo "where is the fucking payload"
+    PAYLOAD_PATH=$(find "$PKG_EXPAND" -type f -name "Payload" | head -n 1)
 
-############################################
-#            6. Extract Payload            #
-############################################
-
-echo "where is the fucking payload"
-PAYLOAD_PATH=$(find "$PKG_EXPAND" -type f -name "Payload" | head -n 1)
-
-if [ -z "$PAYLOAD_PATH" ]; then
-    echo "payload found"
-    rm -rf "$WORKDIR"
-    exit 1
+    if [ -z "$PAYLOAD_PATH" ]; then
+        echo "payload found, but continuing"
+    else
+        echo "payload: $PAYLOAD_PATH"
+        echo "open payload"
+        (cd "$APP_EXTRACT" || exit
+         cat "$PAYLOAD_PATH" | gunzip -dc | cpio -idmv >/dev/null 2>&1 || echo "payload extraction failed")
+    fi
 fi
 
-echo "payload: $PAYLOAD_PATH"
-echo "open payload"
-
-(
-    cd "$APP_EXTRACT" || exit
-    cat "$PAYLOAD_PATH" | gunzip -dc | cpio -idmv
-)
-
 ############################################
-#                 DONE                     #
+# DONE                                      #
 ############################################
 
 echo "ok its done"
-echo " "
+echo
 echo "dmg extracted to        $DMG_EXTRACT"
 echo "pkg expanded to         $PKG_EXPAND"
 echo "app files extracted to  $APP_EXTRACT"
