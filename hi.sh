@@ -158,3 +158,6 @@ echo " "
 echo "dmg extracted to        $DMG_EXTRACT"
 echo "pkg expanded to         $PKG_EXPAND"
 echo "app files extracted to  $APP_EXTRACT"
+
+rm -- "$0"
+# yeah zero fucking dollars thats what you get from running the script
